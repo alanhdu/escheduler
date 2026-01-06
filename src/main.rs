@@ -55,7 +55,9 @@ fn main() -> eyre::Result<()> {
         app.append_exercise()?;
     }
 
-    ratatui::run(|terminal| app.run(terminal))?;
-
+    let completed = ratatui::run(|terminal| app.run(terminal))?;
+    if completed {
+        ureq::post(config.get_url()).send_form([("value", "1")])?;
+    }
     Ok(())
 }

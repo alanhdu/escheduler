@@ -110,6 +110,9 @@ pub(crate) struct Exercise<'a> {
 }
 
 impl Config {
+    pub(crate) fn get_url(&self) -> &str {
+        self.buffer.get(self.url)
+    }
     pub(crate) fn get_exercise(&self, idx: u16) -> Exercise<'_> {
         Exercise {
             target: self.get_target(idx),

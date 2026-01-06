@@ -35,7 +35,7 @@ impl<'a> App<'a> {
     pub(crate) fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
-    ) -> eyre::Result<()> {
+    ) -> eyre::Result<bool> {
         loop {
             terminal.draw(|f| self.render(f))?;
             let next = 1000 - self.start.elapsed().subsec_millis();
@@ -72,7 +72,7 @@ impl<'a> App<'a> {
                         self.append_exercise()?;
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        return Ok(());
+                        return Ok(self.start.elapsed() >= self.config.duration);
                     }
                     KeyCode::Char(c) if c.is_ascii_digit() => {
                         self.input_buffer.push(c);
