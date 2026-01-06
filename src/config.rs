@@ -113,10 +113,18 @@ impl Config {
     pub(crate) fn get_exercise(&self, idx: u16) -> Exercise<'_> {
         Exercise {
             target: self.get_target(idx),
-            name: self.buffer.get(self.names[usize::from(idx)]),
+            name: self.get_name(idx),
             group: self.get_group(idx),
             needs_weight: self.needs_weights.contains(&idx),
         }
+    }
+
+    pub(crate) fn get_weight(&self, idx: u16) -> u8 {
+        if self.needs_weights.contains(&idx) { self.weight } else { 0 }
+    }
+
+    pub(crate) fn get_name(&self, idx: u16) -> &str {
+        self.buffer.get(self.names[usize::from(idx)])
     }
 
     pub(crate) fn get_group(&self, idx: u16) -> &str {

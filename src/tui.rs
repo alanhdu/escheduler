@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use eyre::Context;
 use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
@@ -14,12 +15,19 @@ use ratatui::{
 };
 
 use crate::config::{Config, TargetOrder};
+use crate::db::{Database, Record};
+
+pub(crate) struct Pair {
+    idx: u16,
+    best: u16,
+}
 
 pub(crate) struct App<'a> {
     pub(crate) config: &'a Config,
+    pub(crate) db: Database,
     pub(crate) input_buffer: String,
     pub(crate) order: TargetOrder,
-    pub(crate) queue: VecDeque<u16>,
+    pub(crate) queue: VecDeque<Pair>,
     pub(crate) start: Instant,
 }
 
@@ -49,9 +57,19 @@ impl<'a> App<'a> {
                         if self.input_buffer.is_empty() {
                             continue;
                         }
+                        let Pair { idx, .. } = self.queue.pop_front().unwrap();
+                        let reps = self.input_buffer.parse()?;
+                        let record = Record {
+                            name: self.config.get_name(idx),
+                            weight: self.config.get_weight(idx),
+                            reps,
+                        };
+                        self.db.write(&record).wrap_err_with(|| {
+                            format!("Could not insert {:?}", record)
+                        })?;
+
                         self.input_buffer.clear();
-                        self.queue.pop_front();
-                        self.append_exercise();
+                        self.append_exercise()?;
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
                         return Ok(());
@@ -65,10 +83,12 @@ impl<'a> App<'a> {
         }
     }
 
-    pub(crate) fn append_exercise(&mut self) {
+    pub(crate) fn append_exercise(&mut self) -> eyre::Result<()> {
         let target = match self.queue.back() {
             None => self.order.first(),
-            Some(idx) => self.order.next(self.config.get_target(*idx)),
+            Some(Pair { idx, .. }) => {
+                self.order.next(self.config.get_target(*idx))
+            }
         };
 
         let range = self.config.get_target_range(target);
@@ -78,10 +98,26 @@ impl<'a> App<'a> {
         loop {
             let idx = rng.random_range(range.clone());
             let candidate = self.config.get_group(idx);
-            if self.queue.iter().all(|i| self.config.get_group(*i) != candidate)
+            if self
+                .queue
+                .iter()
+                .all(|p| self.config.get_group(p.idx) != candidate)
             {
-                self.queue.push_back(idx);
-                break;
+                let best = self
+                    .db
+                    .best(
+                        self.config.get_name(idx),
+                        self.config.get_weight(idx),
+                    )
+                    .wrap_err_with(|| {
+                        format!(
+                            "Coud not query SQL for name={} weight={}",
+                            self.config.get_name(idx),
+                            self.config.get_weight(idx),
+                        )
+                    })?;
+                self.queue.push_back(Pair { idx, best });
+                break Ok(());
             }
         }
     }
@@ -126,23 +162,26 @@ impl<'a> App<'a> {
         );
 
         // 2. Main Area
-        let rows = self.queue.iter().enumerate().map(|(i, idx)| {
-            let exercise = self.config.get_exercise(*idx);
+        let rows =
+            self.queue.iter().enumerate().map(|(i, Pair { idx, best })| {
+                let exercise = self.config.get_exercise(*idx);
 
-            let target = Cell::new(exercise.target.to_string());
-            let name = Cell::new(exercise.name);
-            if i > 0 {
-                Row::new([target, name, Cell::new("")])
-            } else {
-                Row::new([
-                    target,
-                    name,
-                    Cell::new(&*self.input_buffer)
-                        .style(Style::new().reversed()),
-                ])
-                .style(Style::new().underlined().italic())
-            }
-        });
+                let target = Cell::new(exercise.target.to_string());
+                let name = Cell::new(exercise.name);
+                let best = Cell::new(best.to_string());
+                if i > 0 {
+                    Row::new([target, name, best, Cell::new("")])
+                } else {
+                    Row::new([
+                        target,
+                        name,
+                        best,
+                        Cell::new(&*self.input_buffer)
+                            .style(Style::new().reversed()),
+                    ])
+                    .style(Style::new().underlined().italic())
+                }
+            });
 
         let table = Table::new(
             rows,
@@ -155,7 +194,7 @@ impl<'a> App<'a> {
         )
         .column_spacing(1)
         .header(
-            Row::new(["Target", "Exercise", "Count"])
+            Row::new(["Target", "Exercise", "Prev Best", "Count"])
                 .style(Style::new().bold()),
         );
         frame.render_widget(table, panels[1]);
