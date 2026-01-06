@@ -1,6 +1,14 @@
-use std::{collections::HashMap, fs::File, io::Read, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::Read,
+    path::Path,
+};
 
+use eyre::Context;
 use serde::Deserialize;
+
+use crate::buffer::{Buffer, BufferBuilder, Index};
 
 #[derive(Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -41,18 +49,113 @@ struct ConfigBuilder<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) struct Config {}
+pub(crate) struct Config {
+    buffer: Buffer,
+    indices: [u16; 4],
 
-impl<'a> TryFrom<&'a Path> for Config {
-    type Error = eyre::Error;
+    names: Box<[Index]>,
+    groups: Box<[Index]>,
+    needs_weights: HashSet<u16>,
 
-    fn try_from(value: &'a Path) -> Result<Self, Self::Error> {
-        let mut file = File::open(value)?;
+    url: Index,
+}
+
+impl Config {
+    pub(crate) fn from_file(path: &Path) -> eyre::Result<Self> {
+        let mut file = File::open(path).wrap_err_with(|| {
+            format!("Could not open file `{}`", path.display())
+        })?;
+
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
 
-        let result: ConfigBuilder = serde_json::from_str(&buf)?;
-        dbg!(&result);
-        todo!();
+        let value: ConfigBuilder =
+            serde_json::from_str(&buf).wrap_err_with(|| {
+                format!("Could not parse file `{}`", path.display())
+            })?;
+
+        let mut builder = BufferBuilder::new();
+        let url = builder.insert(value.url);
+
+        let mut indices = [0, 0, 0, 0];
+
+        let capacity = value.specs.upper.len()
+            + value.specs.lower.len()
+            + value.specs.core.len();
+
+        let mut groups: Vec<Index> = Vec::with_capacity(capacity);
+        let mut names = Vec::with_capacity(capacity);
+        let mut needs_weights = HashSet::new();
+
+        process(
+            &mut builder,
+            value.specs.core,
+            &mut groups,
+            &mut names,
+            &mut needs_weights,
+        );
+        debug_assert!(groups.len() <= u16::MAX.into());
+        indices[1] = groups.len() as u16;
+
+        process(
+            &mut builder,
+            value.specs.lower,
+            &mut groups,
+            &mut names,
+            &mut needs_weights,
+        );
+        debug_assert!(groups.len() <= u16::MAX.into());
+        indices[2] = groups.len() as u16;
+
+        process(
+            &mut builder,
+            value.specs.upper,
+            &mut groups,
+            &mut names,
+            &mut needs_weights,
+        );
+        debug_assert!(groups.len() <= u16::MAX.into());
+        indices[3] = groups.len() as u16;
+
+        Ok(Config {
+            url,
+            buffer: builder.into_buffer(),
+            groups: groups.into(),
+            indices,
+            names: names.into(),
+            needs_weights,
+        })
+    }
+}
+
+fn process<'a>(
+    builder: &mut BufferBuilder<'a>,
+    specs: HashMap<&'a str, Spec<'a>>,
+    groups: &mut Vec<Index>,
+    names: &mut Vec<Index>,
+    weights: &mut HashSet<u16>,
+) {
+    for (k, v) in specs {
+        let index = builder.insert(k);
+        match v.variations {
+            None => {
+                groups.push(index);
+                names.push(index);
+                if v.needs_weight {
+                    debug_assert!(groups.len() <= u16::MAX.into());
+                    weights.insert(groups.len() as u16);
+                }
+            }
+            Some(vars) => {
+                for var in vars {
+                    groups.push(index);
+                    names.push(builder.insert(var));
+                    if v.needs_weight {
+                        debug_assert!(groups.len() <= u16::MAX.into());
+                        weights.insert(groups.len() as u16);
+                    }
+                }
+            }
+        }
     }
 }
