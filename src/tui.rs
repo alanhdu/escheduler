@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::VecDeque,
     time::{Duration, Instant},
 };
@@ -17,9 +18,10 @@ use ratatui::{
 use crate::config::{Config, TargetOrder};
 use crate::db::{Database, Record};
 
-pub(crate) struct Pair {
+pub(crate) struct Spec {
     idx: u16,
     best: u16,
+    weight: u8,
 }
 
 pub(crate) struct App<'a> {
@@ -27,7 +29,7 @@ pub(crate) struct App<'a> {
     pub(crate) db: Database,
     pub(crate) input_buffer: String,
     pub(crate) order: TargetOrder,
-    pub(crate) queue: VecDeque<Pair>,
+    pub(crate) queue: VecDeque<Spec>,
     pub(crate) start: Instant,
 }
 
@@ -57,11 +59,12 @@ impl<'a> App<'a> {
                         if self.input_buffer.is_empty() {
                             continue;
                         }
-                        let Pair { idx, .. } = self.queue.pop_front().unwrap();
+                        let Spec { idx, weight, .. } =
+                            self.queue.pop_front().unwrap();
                         let reps = self.input_buffer.parse()?;
                         let record = Record {
                             name: self.config.get_name(idx),
-                            weight: self.config.get_weight(idx),
+                            weight: weight,
                             reps,
                         };
                         self.db.write(&record).wrap_err_with(|| {
@@ -86,7 +89,7 @@ impl<'a> App<'a> {
     pub(crate) fn append_exercise(&mut self) -> eyre::Result<()> {
         let target = match self.queue.back() {
             None => self.order.first(),
-            Some(Pair { idx, .. }) => {
+            Some(Spec { idx, .. }) => {
                 self.order.next(self.config.get_target(*idx))
             }
         };
@@ -94,7 +97,7 @@ impl<'a> App<'a> {
         let range = self.config.get_target_range(target);
         let mut rng = rand::rng();
 
-        // TODO: use a better sampling strategy?
+        // TODO: use a better strategy than rejection sampling?
         loop {
             let idx = rng.random_range(range.clone());
             let candidate = self.config.get_group(idx);
@@ -103,20 +106,16 @@ impl<'a> App<'a> {
                 .iter()
                 .all(|p| self.config.get_group(p.idx) != candidate)
             {
-                let best = self
-                    .db
-                    .best(
-                        self.config.get_name(idx),
-                        self.config.get_weight(idx),
+                let name = self.config.get_name(idx);
+                let weight = self.config.get_weight(idx, &mut rng);
+
+                let best = self.db.best(name, weight).wrap_err_with(|| {
+                    format!(
+                        "Coud not query SQL for name={} weight={}",
+                        name, weight
                     )
-                    .wrap_err_with(|| {
-                        format!(
-                            "Coud not query SQL for name={} weight={}",
-                            self.config.get_name(idx),
-                            self.config.get_weight(idx),
-                        )
-                    })?;
-                self.queue.push_back(Pair { idx, best });
+                })?;
+                self.queue.push_back(Spec { idx, best, weight });
                 break Ok(());
             }
         }
@@ -130,12 +129,8 @@ impl<'a> App<'a> {
             .split(frame.area());
 
         // 1. Information Display
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(4), Constraint::Length(4)])
-            .split(panels[0]);
-
-        let remaining = self.config.duration.saturating_sub( self.start.elapsed()).as_secs();
+        let remaining =
+            self.config.duration.saturating_sub(self.start.elapsed()).as_secs();
         let text = Text::raw(format!(
             "Time Remaining:\n{:02}:{:02}",
             remaining / 60,
@@ -151,23 +146,22 @@ impl<'a> App<'a> {
             Paragraph::new(text)
                 .alignment(Alignment::Center)
                 .block(block.clone().title("Clock")),
-            chunks[0],
-        );
-
-        frame.render_widget(
-            Paragraph::new(format!("{} lbs", self.config.weight))
-                .alignment(Alignment::Center)
-                .block(block.title("Weight")),
-            chunks[1],
+            panels[0],
         );
 
         // 2. Main Area
-        let rows =
-            self.queue.iter().enumerate().map(|(i, Pair { idx, best })| {
-                let exercise = self.config.get_exercise(*idx);
-
-                let target = Cell::new(exercise.target.to_string());
-                let name = Cell::new(exercise.name);
+        let rows = self.queue.iter().enumerate().map(
+            |(i, Spec { idx, best, weight })| {
+                let target =
+                    Cell::new(self.config.get_target(*idx).to_string());
+                
+                let name = Cell::new(if *weight > 0 {
+                    Cow::from(
+                        format!("{} ({} lbs)", self.config.get_name(*idx), *weight)
+                    )
+                } else {
+                    Cow::from(self.config.get_name(*idx))
+                });
                 let best = Cell::new(best.to_string());
                 if i > 0 {
                     Row::new([target, name, best, Cell::new("")])
@@ -181,7 +175,8 @@ impl<'a> App<'a> {
                     ])
                     .style(Style::new().underlined().italic())
                 }
-            });
+            },
+        );
 
         let table = Table::new(
             rows,

@@ -12,7 +12,6 @@ use std::{
 
 use clap::Parser;
 use eyre::Context;
-use rand::Rng;
 
 use crate::config::{Config, TargetOrder};
 use crate::db::Database;
@@ -40,7 +39,6 @@ fn main() -> eyre::Result<()> {
     let config = Config::from_file(
         cli.config.as_ref(),
         Duration::from_mins(cli.minutes.into()),
-        5 * rng.random_range(1..=8),
     )?;
 
     let mut app = App {

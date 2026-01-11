@@ -1,9 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
-    fs::File,
-    io::Read,
-    path::Path,
-    time::Duration,
+    collections::HashMap, fs::File, io::Read, path::Path, time::Duration,
 };
 
 use eyre::Context;
@@ -57,20 +53,10 @@ impl std::fmt::Display for Target {
     }
 }
 
-// TODO: in theory, these should be Cow<'a, str> instead
-// to deal with escapes, but let's just assume we don't have any
-// for now.
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-struct Spec<'a> {
-    #[serde(borrow)]
-    #[serde(default)]
-    variations: Option<Vec<&'a str>>,
+type Spec<'a> = Option<HashMap<&'a str, Option<(u8, u8)>>>;
 
-    #[serde(default)]
-    needs_weight: bool,
-}
-
+// TODO: in theory, these should be Cow<'a, str> to deal with escapes,
+// but let's just assume we don't have any
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 struct Specs<'a> {
@@ -90,40 +76,28 @@ struct ConfigBuilder<'a> {
 #[derive(Debug)]
 pub(crate) struct Config {
     pub(crate) duration: Duration,
-    pub(crate) weight: u8,
 
     buffer: Buffer,
     indices: [u16; 4],
 
     names: Box<[Index]>,
     groups: Box<[Index]>,
-    needs_weights: HashSet<u16>,
-
+    weights: Box<[(u8, u8)]>,
     url: Index,
-}
-
-pub(crate) struct Exercise<'a> {
-    pub(crate) target: Target,
-    pub(crate) name: &'a str,
-    pub(crate) group: &'a str,
-    pub(crate) needs_weight: bool,
 }
 
 impl Config {
     pub(crate) fn get_url(&self) -> &str {
         self.buffer.get(self.url)
     }
-    pub(crate) fn get_exercise(&self, idx: u16) -> Exercise<'_> {
-        Exercise {
-            target: self.get_target(idx),
-            name: self.get_name(idx),
-            group: self.get_group(idx),
-            needs_weight: self.needs_weights.contains(&idx),
+    pub(crate) fn get_weight(&self, idx: u16, rng: &mut impl rand::Rng) -> u8 {
+        let (lower, upper) = self.weights[usize::from(idx)];
+        if lower == upper {
+            lower
+        } else {
+            let val = rng.random_range(lower..=upper);
+            (((u16::from(val) + 2) / 5) * 5) as u8
         }
-    }
-
-    pub(crate) fn get_weight(&self, idx: u16) -> u8 {
-        if self.needs_weights.contains(&idx) { self.weight } else { 0 }
     }
 
     pub(crate) fn get_name(&self, idx: u16) -> &str {
@@ -159,7 +133,6 @@ impl Config {
     pub(crate) fn from_file(
         path: &Path,
         duration: Duration,
-        weight: u8,
     ) -> eyre::Result<Self> {
         let mut file = File::open(path).wrap_err_with(|| {
             format!("Config file `{}` could not be read", path.display())
@@ -180,14 +153,14 @@ impl Config {
             + value.specs.core.len();
         let mut groups: Vec<Index> = Vec::with_capacity(capacity);
         let mut names = Vec::with_capacity(capacity);
-        let mut needs_weights = HashSet::new();
+        let mut weights = Vec::with_capacity(capacity);
 
         process(
             &mut builder,
             value.specs.core,
             &mut groups,
             &mut names,
-            &mut needs_weights,
+            &mut weights,
         );
         debug_assert!(groups.len() <= u16::MAX.into());
         indices[1] = groups.len() as u16;
@@ -197,7 +170,7 @@ impl Config {
             value.specs.lower,
             &mut groups,
             &mut names,
-            &mut needs_weights,
+            &mut weights,
         );
         debug_assert!(groups.len() <= u16::MAX.into());
         indices[2] = groups.len() as u16;
@@ -207,7 +180,7 @@ impl Config {
             value.specs.upper,
             &mut groups,
             &mut names,
-            &mut needs_weights,
+            &mut weights,
         );
         debug_assert!(groups.len() <= u16::MAX.into());
         indices[3] = groups.len() as u16;
@@ -215,12 +188,11 @@ impl Config {
         Ok(Config {
             url,
             duration,
-            weight,
             buffer: builder.into_buffer(),
             indices,
             groups: groups.into(),
             names: names.into(),
-            needs_weights,
+            weights: weights.into(),
         })
     }
 }
@@ -230,27 +202,22 @@ fn process<'a>(
     specs: HashMap<&'a str, Spec<'a>>,
     groups: &mut Vec<Index>,
     names: &mut Vec<Index>,
-    weights: &mut HashSet<u16>,
+    weights: &mut Vec<(u8, u8)>,
 ) {
     for (k, v) in specs {
         let index = builder.insert(k);
-        match v.variations {
+
+        match v {
             None => {
                 groups.push(index);
                 names.push(index);
-                if v.needs_weight {
-                    debug_assert!(groups.len() <= u16::MAX.into());
-                    weights.insert(groups.len() as u16);
-                }
+                weights.push((0, 0));
             }
-            Some(vars) => {
-                for var in vars {
+            Some(variations) => {
+                for (name, var) in variations {
                     groups.push(index);
-                    names.push(builder.insert(var));
-                    if v.needs_weight {
-                        debug_assert!(groups.len() <= u16::MAX.into());
-                        weights.insert(groups.len() as u16);
-                    }
+                    names.push(builder.insert(name));
+                    weights.push(var.unwrap_or((0, 0)));
                 }
             }
         }
