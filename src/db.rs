@@ -36,10 +36,7 @@ CREATE TABLE IF NOT EXISTS records (
         Ok(Database { conn })
     }
 
-    pub(crate) fn write<'a>(
-        &self,
-        record: &Record<'_>,
-    ) -> rusqlite::Result<()> {
+    pub(crate) fn write(&self, record: &Record<'_>) -> rusqlite::Result<()> {
         let sql =
             "INSERT INTO records (name, weight, reps) VALUEs (?1, ?2, ?3)";
         let params = (record.name, record.weight, record.reps);
@@ -47,11 +44,7 @@ CREATE TABLE IF NOT EXISTS records (
         Ok(())
     }
 
-    pub(crate) fn best<'a>(
-        &self,
-        name: &str,
-        weight: u8,
-    ) -> rusqlite::Result<u16> {
+    pub(crate) fn best(&self, name: &str, weight: u8) -> rusqlite::Result<u16> {
         let sql =
             "SELECT MAX(reps) FROM records WHERE name = ?1 AND weight = ?2";
         let output: Option<_> =

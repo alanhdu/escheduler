@@ -1,4 +1,3 @@
-#![allow(dead_code)] // still building scaffolding
 mod buffer;
 mod config;
 mod db;

@@ -64,7 +64,7 @@ impl<'a> App<'a> {
                         let reps = self.input_buffer.parse()?;
                         let record = Record {
                             name: self.config.get_name(idx),
-                            weight: weight,
+                            weight,
                             reps,
                         };
                         self.db.write(&record).wrap_err_with(|| {
@@ -154,11 +154,13 @@ impl<'a> App<'a> {
             |(i, Spec { idx, best, weight })| {
                 let target =
                     Cell::new(self.config.get_target(*idx).to_string());
-                
+
                 let name = Cell::new(if *weight > 0 {
-                    Cow::from(
-                        format!("{} ({} lbs)", self.config.get_name(*idx), *weight)
-                    )
+                    Cow::from(format!(
+                        "{} ({} lbs)",
+                        self.config.get_name(*idx),
+                        *weight
+                    ))
                 } else {
                     Cow::from(self.config.get_name(*idx))
                 });
