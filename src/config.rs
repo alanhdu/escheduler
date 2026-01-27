@@ -94,9 +94,11 @@ impl Config {
         let (lower, upper) = self.weights[usize::from(idx)];
         if lower == upper {
             lower
+        } else if rng.random_ratio(1, 2) {
+            if rng.random_ratio(1, 2) { lower } else { upper }
         } else {
             let val = rng.random_range(lower..=upper);
-            (((u16::from(val) + 2) / 5) * 5) as u8
+            u8::max(10, ((val + 2) / 5) * 5)
         }
     }
 

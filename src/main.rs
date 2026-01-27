@@ -48,7 +48,7 @@ fn main() -> eyre::Result<()> {
         queue: VecDeque::with_capacity(9),
         start: Instant::now(),
     };
-    for _ in 0..9 {
+    for _ in 0..12 {
         app.append_exercise()?;
     }
 

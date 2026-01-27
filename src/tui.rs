@@ -96,7 +96,6 @@ impl<'a> App<'a> {
 
         let range = self.config.get_target_range(target);
         let mut rng = rand::rng();
-
         // TODO: use a better strategy than rejection sampling?
         loop {
             let idx = rng.random_range(range.clone());
