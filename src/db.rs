@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS records (
             (),
         )?;
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS name_weihgt_reps ON records (name, weight, reps DESC)",
+            "CREATE INDEX IF NOT EXISTS name_weight_reps ON records (name, weight, reps DESC)",
             (),
         )?;
         Ok(Database { conn })
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS records (
 
     pub(crate) fn write(&self, record: &Record<'_>) -> rusqlite::Result<()> {
         let sql =
-            "INSERT INTO records (name, weight, reps) VALUEs (?1, ?2, ?3)";
+            "INSERT INTO records (name, weight, reps) VALUES (?1, ?2, ?3)";
         let params = (record.name, record.weight, record.reps);
         self.conn.execute(sql, params)?;
         Ok(())
