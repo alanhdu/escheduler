@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS records (
         Ok(Database { conn })
     }
 
+    pub(crate) fn session(&self) -> rusqlite::Result<u32> {
+        let sql = "SELECT COUNT(DISTINCT DATE(created_at)) FROM records";
+        self.conn.query_one(sql, (), |row| row.get(0))
+    }
+
     pub(crate) fn write(&self, record: &Record<'_>) -> rusqlite::Result<()> {
         let sql =
             "INSERT INTO records (name, weight, reps) VALUES (?1, ?2, ?3)";

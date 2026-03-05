@@ -1,227 +1,109 @@
+use std::hash::Hash;
+use std::marker::PhantomData;
 use std::{
     collections::HashMap, fs::File, io::Read, path::Path, time::Duration,
 };
 
 use eyre::Context;
-use rand::{Rng, seq::SliceRandom};
+use rand::Rng;
 use serde::Deserialize;
 
-use crate::buffer::{Buffer, BufferBuilder, Index};
+use crate::buffer::{Buffer, StrIndex, StringInterner};
 
-#[derive(Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Target {
-    Core,
-    Lower,
-    Upper,
-}
-
-pub(crate) struct TargetOrder([Target; 3]);
-
-impl TargetOrder {
-    pub(crate) fn new(rng: &mut impl Rng) -> Self {
-        let mut order = [Target::Core, Target::Lower, Target::Upper];
-        order.shuffle(rng);
-        TargetOrder(order)
-    }
-
-    pub(crate) fn first(&self) -> Target {
-        self.0[0]
-    }
-
-    pub(crate) fn next(&self, current: Target) -> Target {
-        if current == self.0[0] {
-            self.0[1]
-        } else if current == self.0[1] {
-            self.0[2]
-        } else if current == self.0[2] {
-            self.0[0]
-        } else {
-            unreachable!()
-        }
-    }
-}
-
-impl std::fmt::Display for Target {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let target = match self {
-            Target::Core => "core",
-            Target::Lower => "lower",
-            Target::Upper => "upper",
-        };
-        write!(f, "{}", target)
-    }
-}
-
-type Spec<'a> = Option<HashMap<&'a str, Option<(u8, u8)>>>;
-
-// TODO: in theory, these should be Cow<'a, str> to deal with escapes,
-// but let's just assume we don't have any
+/// The JSON file format we're deserializing.
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
-struct Specs<'a> {
-    #[serde(borrow)]
-    upper: HashMap<&'a str, Spec<'a>>,
-    lower: HashMap<&'a str, Spec<'a>>,
-    core: HashMap<&'a str, Spec<'a>>,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(deny_unknown_fields)]
-struct ConfigBuilder<'a> {
-    specs: Specs<'a>,
+pub(crate) struct RawConfig<'a> {
+    specs: HashMap<&'a str, RawSpec<'a>>,
     url: &'a str,
+}
+type RawSpec<'a> =
+    HashMap<&'a str, Option<(Option<u8>, Option<u8>, Option<u8>)>>;
+
+type Brand<'id> = PhantomData<fn(&'id ()) -> &'id ()>;
+
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub(crate) struct ExerciseIndex<'id> {
+    idx: u16,
+    _brand: Brand<'id>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Config {
+pub(crate) struct Config<'id> {
     pub(crate) duration: Duration,
+    url: StrIndex<'id>,
+    buffer: Buffer<'id>,
 
-    buffer: Buffer,
-    indices: [u16; 4],
-
-    names: Box<[Index]>,
-    groups: Box<[Index]>,
-    weights: Box<[(u8, u8)]>,
-    url: Index,
+    groups: HashMap<StrIndex<'id>, (u16, u16)>,
+    names: Box<[StrIndex<'id>]>,
+    weights: Box<[u8]>,
 }
 
-impl Config {
+impl<'id> Config<'id> {
     pub(crate) fn get_url(&self) -> &str {
         self.buffer.get(self.url)
     }
-    pub(crate) fn get_weight(&self, idx: u16, rng: &mut impl rand::Rng) -> u8 {
-        let (lower, upper) = self.weights[usize::from(idx)];
-        if lower == upper {
-            lower
-        } else if rng.random_ratio(1, 2) {
-            if rng.random_ratio(1, 2) { lower } else { upper }
-        } else {
-            let val = rng.random_range(lower..=upper);
-            u8::max(10, ((val + 2) / 5) * 5)
-        }
+    pub(crate) fn get_group(&self, idx: StrIndex<'id>) -> &str {
+        self.buffer.get(idx)
+    }
+    pub(crate) fn get_name(&self, idx: ExerciseIndex<'id>) -> &str {
+        self.buffer.get(self.names[usize::from(idx.idx)])
+    }
+    pub(crate) fn get_weight(&self, idx: ExerciseIndex<'id>) -> u8 {
+        self.weights[usize::from(idx.idx)]
     }
 
-    pub(crate) fn get_name(&self, idx: u16) -> &str {
-        self.buffer.get(self.names[usize::from(idx)])
-    }
-
-    pub(crate) fn get_group(&self, idx: u16) -> &str {
-        self.buffer.get(self.groups[usize::from(idx)])
-    }
-
-    pub(crate) fn get_target(&self, idx: u16) -> Target {
-        if idx < self.indices[1] {
-            Target::Core
-        } else if idx < self.indices[2] {
-            Target::Lower
-        } else {
-            debug_assert!(idx < self.indices[3]);
-            Target::Upper
-        }
-    }
-
-    pub(crate) fn get_target_range(
+    pub(crate) fn get_exercise(
         &self,
-        target: Target,
-    ) -> std::ops::Range<u16> {
-        match target {
-            Target::Core => self.indices[0]..self.indices[1],
-            Target::Lower => self.indices[1]..self.indices[2],
-            Target::Upper => self.indices[2]..self.indices[3],
-        }
+        rng: &mut impl Rng,
+        group: StrIndex<'id>,
+    ) -> Option<ExerciseIndex<'id>> {
+        let (start, stop) = self.groups.get(&group)?;
+        let idx = rng.random_range(*start..*stop);
+        Some(ExerciseIndex { idx, _brand: PhantomData })
     }
 
-    pub(crate) fn from_file(
-        path: &Path,
+    pub(crate) fn from_raw<'a>(
+        mut interner: StringInterner<'a, 'id>,
+        raw: RawConfig<'a>,
         duration: Duration,
-    ) -> eyre::Result<Self> {
-        let mut file = File::open(path).wrap_err_with(|| {
-            format!("Config file `{}` could not be read", path.display())
-        })?;
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
-
-        let value: ConfigBuilder =
-            serde_json::from_str(&buf).wrap_err_with(|| {
-                format!("Could not parse file `{}`", path.display())
-            })?;
-        let mut builder = BufferBuilder::new();
-        let url = builder.insert(value.url);
-
-        let mut indices = [0, 0, 0, 0];
-        let capacity = value.specs.upper.len()
-            + value.specs.lower.len()
-            + value.specs.core.len();
-        let mut groups: Vec<Index> = Vec::with_capacity(capacity);
+        session: u32,
+    ) -> eyre::Result<Config<'id>> {
+        let url = interner.insert(raw.url);
+        let capacity = raw.specs.len();
         let mut names = Vec::with_capacity(capacity);
         let mut weights = Vec::with_capacity(capacity);
+        let mut groups = HashMap::with_capacity(capacity);
 
-        process(
-            &mut builder,
-            value.specs.core,
-            &mut groups,
-            &mut names,
-            &mut weights,
-        );
-        debug_assert!(groups.len() <= u16::MAX.into());
-        indices[1] = groups.len() as u16;
+        let mut offset = names.len();
+        for (group, spec) in &raw.specs {
+            for (name, var) in spec {
+                weights.push(match (session % 3, var) {
+                    (0, Some((Some(w), _, _))) => *w,
+                    (1, Some((_, Some(w), _))) => *w,
+                    (2, Some((_, _, Some(w)))) => *w,
+                    (_, None) => 0,
+                    _ => continue,
+                });
+                let idx = interner.insert(name);
+                names.push(idx);
+            }
+            debug_assert!(names.len() <= u16::MAX.into());
+            groups.insert(
+                interner.insert(group),
+                (offset as u16, names.len() as u16),
+            );
+            offset = names.len();
+        }
 
-        process(
-            &mut builder,
-            value.specs.lower,
-            &mut groups,
-            &mut names,
-            &mut weights,
-        );
-        debug_assert!(groups.len() <= u16::MAX.into());
-        indices[2] = groups.len() as u16;
-
-        process(
-            &mut builder,
-            value.specs.upper,
-            &mut groups,
-            &mut names,
-            &mut weights,
-        );
-        debug_assert!(groups.len() <= u16::MAX.into());
-        indices[3] = groups.len() as u16;
-
+        debug_assert!(names.len() < u16::MAX.into());
         Ok(Config {
+            buffer: interner.into_buffer(),
             url,
             duration,
-            buffer: builder.into_buffer(),
-            indices,
-            groups: groups.into(),
             names: names.into(),
+            groups,
             weights: weights.into(),
         })
-    }
-}
-
-fn process<'a>(
-    builder: &mut BufferBuilder<'a>,
-    specs: HashMap<&'a str, Spec<'a>>,
-    groups: &mut Vec<Index>,
-    names: &mut Vec<Index>,
-    weights: &mut Vec<(u8, u8)>,
-) {
-    for (k, v) in specs {
-        let index = builder.insert(k);
-
-        match v {
-            None => {
-                groups.push(index);
-                names.push(index);
-                weights.push((0, 0));
-            }
-            Some(variations) => {
-                for (name, var) in variations {
-                    groups.push(index);
-                    names.push(builder.insert(name));
-                    weights.push(var.unwrap_or((0, 0)));
-                }
-            }
-        }
     }
 }

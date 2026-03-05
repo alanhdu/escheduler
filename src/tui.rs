@@ -15,25 +15,23 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
-use crate::config::{Config, TargetOrder};
+use crate::config::{Config, ExerciseIndex};
 use crate::db::{Database, Record};
 
-pub(crate) struct Spec {
-    idx: u16,
-    best: u16,
-    weight: u8,
+pub(crate) struct Exercise<'id> {
+    pub(crate) idx: ExerciseIndex<'id>,
+    pub(crate) prev_best: u16,
 }
 
-pub(crate) struct App<'a> {
-    pub(crate) config: &'a Config,
+pub(crate) struct App<'a, 'id> {
+    pub(crate) config: &'a Config<'id>,
     pub(crate) db: Database,
     pub(crate) input_buffer: String,
-    pub(crate) order: TargetOrder,
-    pub(crate) queue: VecDeque<Spec>,
+    pub(crate) queue: VecDeque<Exercise<'id>>,
     pub(crate) start: Instant,
 }
 
-impl<'a> App<'a> {
+impl<'a, 'id> App<'a, 'id> {
     pub(crate) fn run(
         &mut self,
         terminal: &mut DefaultTerminal,
@@ -59,20 +57,19 @@ impl<'a> App<'a> {
                         if self.input_buffer.is_empty() {
                             continue;
                         }
-                        let Spec { idx, weight, .. } =
-                            self.queue.pop_front().unwrap();
+                        let Some(exercise) = self.queue.pop_front() else {
+                            return Ok(true);
+                        };
                         let reps = self.input_buffer.parse()?;
                         let record = Record {
-                            name: self.config.get_name(idx),
-                            weight,
+                            name: self.config.get_name(exercise.idx),
+                            weight: self.config.get_weight(exercise.idx),
                             reps,
                         };
                         self.db.write(&record).wrap_err_with(|| {
                             format!("Could not insert {:?}", record)
                         })?;
-
                         self.input_buffer.clear();
-                        self.append_exercise()?;
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
                         return Ok(self.start.elapsed() >= self.config.duration);
@@ -82,40 +79,6 @@ impl<'a> App<'a> {
                     }
                     _ => {}
                 }
-            }
-        }
-    }
-
-    pub(crate) fn append_exercise(&mut self) -> eyre::Result<()> {
-        let target = match self.queue.back() {
-            None => self.order.first(),
-            Some(Spec { idx, .. }) => {
-                self.order.next(self.config.get_target(*idx))
-            }
-        };
-
-        let range = self.config.get_target_range(target);
-        let mut rng = rand::rng();
-        // TODO: use a better strategy than rejection sampling?
-        loop {
-            let idx = rng.random_range(range.clone());
-            let candidate = self.config.get_group(idx);
-            if self
-                .queue
-                .iter()
-                .all(|p| self.config.get_group(p.idx) != candidate)
-            {
-                let name = self.config.get_name(idx);
-                let weight = self.config.get_weight(idx, &mut rng);
-
-                let best = self.db.best(name, weight).wrap_err_with(|| {
-                    format!(
-                        "Coud not query SQL for name={} weight={}",
-                        name, weight
-                    )
-                })?;
-                self.queue.push_back(Spec { idx, best, weight });
-                break Ok(());
             }
         }
     }
@@ -149,40 +112,31 @@ impl<'a> App<'a> {
         );
 
         // 2. Main Area
-        let rows = self.queue.iter().enumerate().map(
-            |(i, Spec { idx, best, weight })| {
-                let target =
-                    Cell::new(self.config.get_target(*idx).to_string());
+        let rows = self.queue.iter().enumerate().map(|(i, exercise)| {
+            let weight = self.config.get_weight(exercise.idx);
+            let name = self.config.get_name(exercise.idx);
+            let name = Cell::new(self.config.get_name(exercise.idx).replace(
+                "{}",
+                &self.config.get_weight(exercise.idx).to_string(),
+            ));
 
-                let name = Cell::new(if *weight > 0 {
-                    Cow::from(format!(
-                        "{} ({} lbs)",
-                        self.config.get_name(*idx),
-                        *weight
-                    ))
-                } else {
-                    Cow::from(self.config.get_name(*idx))
-                });
-                let best = Cell::new(best.to_string());
-                if i > 0 {
-                    Row::new([target, name, best, Cell::new("")])
-                } else {
-                    Row::new([
-                        target,
-                        name,
-                        best,
-                        Cell::new(&*self.input_buffer)
-                            .style(Style::new().reversed()),
-                    ])
-                    .style(Style::new().underlined().italic())
-                }
-            },
-        );
+            let best = Cell::new(exercise.prev_best.to_string());
+            if i > 0 {
+                Row::new([name, best, Cell::new("")])
+            } else {
+                Row::new([
+                    name,
+                    best,
+                    Cell::new(&*self.input_buffer)
+                        .style(Style::new().reversed()),
+                ])
+                .style(Style::new().underlined().italic())
+            }
+        });
 
         let table = Table::new(
             rows,
             [
-                Constraint::Length(10),
                 Constraint::Length(35),
                 Constraint::Length(10),
                 Constraint::Length(10),
@@ -190,7 +144,7 @@ impl<'a> App<'a> {
         )
         .column_spacing(1)
         .header(
-            Row::new(["Target", "Exercise", "Prev Best", "Count"])
+            Row::new(["Exercise", "Prev Best", "Count"])
                 .style(Style::new().bold()),
         );
         frame.render_widget(table, panels[1]);
