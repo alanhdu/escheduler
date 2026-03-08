@@ -13,6 +13,11 @@ pub(crate) struct Record<'a> {
     pub(crate) reps: u16,
 }
 
+fn normalize(name: &str) -> &str {
+    // Remove whitespace and `({} lbs)` from the name
+    name.rsplit_once('(').map(|x| x.0).unwrap_or(name).trim_end()
+}
+
 impl Database {
     pub(crate) fn open(path: impl AsRef<Path>) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
@@ -44,7 +49,7 @@ CREATE TABLE IF NOT EXISTS records (
     pub(crate) fn write(&self, record: &Record<'_>) -> rusqlite::Result<()> {
         let sql =
             "INSERT INTO records (name, weight, reps) VALUES (?1, ?2, ?3)";
-        let params = (record.name, record.weight, record.reps);
+        let params = (normalize(record.name), record.weight, record.reps);
         self.conn.execute(sql, params)?;
         Ok(())
     }
@@ -53,7 +58,8 @@ CREATE TABLE IF NOT EXISTS records (
         let sql =
             "SELECT MAX(reps) FROM records WHERE name = ?1 AND weight = ?2";
         let output: Option<_> =
-            self.conn.query_one(sql, (name, weight), |row| row.get(0))?;
+            self.conn
+                .query_one(sql, (normalize(name), weight), |row| row.get(0))?;
         Ok(output.unwrap_or(0))
     }
 }
