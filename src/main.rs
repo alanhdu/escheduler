@@ -141,6 +141,7 @@ fn main() -> eyre::Result<()> {
             input_buffer: String::with_capacity(3),
             queue: VecDeque::from(queue),
             start: Instant::now(),
+            session_counter,
         };
 
         let completed = ratatui::run(|terminal| app.run(terminal))?;

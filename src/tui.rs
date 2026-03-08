@@ -10,8 +10,8 @@ use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, KeyCode},
     layout::{Alignment, Constraint, Direction, Layout},
-    style::Style,
-    text::Text,
+    style::{Style, Stylize},
+    text::{Line, Text},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
@@ -29,6 +29,7 @@ pub(crate) struct App<'a, 'id> {
     pub(crate) input_buffer: String,
     pub(crate) queue: VecDeque<Exercise<'id>>,
     pub(crate) start: Instant,
+    pub(crate) session_counter: u32,
 }
 
 impl<'a, 'id> App<'a, 'id> {
@@ -91,23 +92,38 @@ impl<'a, 'id> App<'a, 'id> {
             .split(frame.area());
 
         // 1. Information Display
+
         let remaining =
             self.config.duration.saturating_sub(self.start.elapsed()).as_secs();
-        let text = Text::raw(format!(
-            "Time Remaining:\n{:02}:{:02}",
-            remaining / 60,
-            remaining % 60,
-        ))
-        .style(Style::new().bold().red());
-
+        let rows = [
+            Row::new([
+                Cell::from("Time Remaining").bold(),
+                Cell::from(format!(
+                    "{:02}:{:02}",
+                    remaining / 60,
+                    remaining % 60
+                )),
+            ])
+            .red(),
+            Row::new([
+                Cell::from("Session").bold(),
+                Cell::from(format!("{}", self.session_counter)),
+            ]),
+            Row::new([
+                Cell::from("Target").bold(),
+                Cell::from(match self.session_counter % 3 {
+                    0 => "High Weight",
+                    1 => "Balance",
+                    _ => "High Reps",
+                }),
+            ]),
+        ];
         let block = Block::default()
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL);
-
         frame.render_widget(
-            Paragraph::new(text)
-                .alignment(Alignment::Center)
-                .block(block.clone().title("Clock")),
+            Table::new(rows, [Constraint::Length(16), Constraint::Fill(1)])
+                .block(block.clone().title("Status")),
             panels[0],
         );
 
