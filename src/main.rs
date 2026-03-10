@@ -119,7 +119,7 @@ fn main() -> eyre::Result<()> {
 
         let acc1 = get_exercise(accessory1)?;
         let mut acc2 = get_exercise(accessory2)?;
-        while (acc1.idx == acc2.idx) {
+        while (config.get_name(acc1.idx) == config.get_name(acc2.idx)) {
             acc2 = get_exercise(accessory2)?;
         }
 

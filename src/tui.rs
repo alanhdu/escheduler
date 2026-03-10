@@ -112,9 +112,9 @@ impl<'a, 'id> App<'a, 'id> {
             Row::new([
                 Cell::from("Target").bold(),
                 Cell::from(match self.session_counter % 3 {
-                    0 => "High Weight",
+                    0 => "High Reps",
                     1 => "Balance",
-                    _ => "High Reps",
+                    _ => "High Weight",
                 }),
             ]),
         ];
