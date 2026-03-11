@@ -19,7 +19,7 @@ use eyre::{Context, eyre};
 use rand::Rng;
 
 use crate::buffer::{Lifetime, StringInterner};
-use crate::config::{Config, RawConfig};
+use crate::config::{Config, RawConfig, Session};
 use crate::db::Database;
 use crate::tui::{App, Exercise};
 
@@ -57,6 +57,7 @@ fn main() -> eyre::Result<()> {
     let value: RawConfig = serde_json::from_str(&buf).wrap_err_with(|| {
         format!("Could not parse file `{}`", path.display())
     })?;
+    let session = Session::from_rng(&mut rng);
 
     Lifetime::with_lifetime(|lifetime| {
         let mut interner = StringInterner::with_lifetime(lifetime);
@@ -70,7 +71,7 @@ fn main() -> eyre::Result<()> {
         let pull = if session_counter % 2 == 0 {
             "vertical pull"
         } else {
-            "horizontal push"
+            "horizontal pull"
         };
         let push = if session_counter % 3 == 0 {
             "upward push"
@@ -99,7 +100,7 @@ fn main() -> eyre::Result<()> {
             interner,
             value,
             Duration::from_mins(cli.minutes.into()),
-            session_counter,
+            session,
         )?;
 
         let mut get_exercise = |group| {
@@ -141,7 +142,7 @@ fn main() -> eyre::Result<()> {
             input_buffer: String::with_capacity(3),
             queue: VecDeque::from(queue),
             start: Instant::now(),
-            session_counter,
+            session,
         };
 
         let completed = ratatui::run(|terminal| app.run(terminal))?;

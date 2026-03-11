@@ -4,13 +4,29 @@ use std::{
     collections::HashMap, fs::File, io::Read, path::Path, time::Duration,
 };
 
+use crate::buffer::{Buffer, StrIndex, StringInterner};
 use eyre::Context;
 use rand::Rng;
 use serde::Deserialize;
 
-use crate::buffer::{Buffer, StrIndex, StringInterner};
+#[derive(Clone, Copy)]
+#[repr(usize)]
+pub(crate) enum Session {
+    Reps = 0,
+    Heavy = 1,
+    Balanced = 2,
+}
 
-/// The JSON file format we're deserializing.
+impl Session {
+    pub(crate) fn from_rng(rng: &mut impl Rng) -> Self {
+        match rng.random_range(0..3) {
+            0 => Self::Balanced,
+            1 => Self::Reps,
+            _ => Self::Heavy,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawConfig<'a> {
@@ -67,7 +83,7 @@ impl<'id> Config<'id> {
         mut interner: StringInterner<'a, 'id>,
         raw: RawConfig<'a>,
         duration: Duration,
-        session: u32,
+        session: Session,
     ) -> eyre::Result<Config<'id>> {
         let url = interner.insert(raw.url);
         let capacity = raw.specs.len();
@@ -78,10 +94,10 @@ impl<'id> Config<'id> {
         let mut offset = names.len();
         for (group, spec) in &raw.specs {
             for (name, var) in spec {
-                weights.push(match (session % 3, var) {
-                    (0, Some((Some(w), _, _))) => *w,
-                    (1, Some((_, Some(w), _))) => *w,
-                    (2, Some((_, _, Some(w)))) => *w,
+                weights.push(match (session, var) {
+                    (Session::Reps, Some((Some(w), _, _))) => *w,
+                    (Session::Balanced, Some((_, Some(w), _))) => *w,
+                    (Session::Heavy, Some((_, _, Some(w)))) => *w,
                     (_, None) => 0,
                     _ => continue,
                 });

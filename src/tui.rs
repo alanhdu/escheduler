@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
 };
 
-use crate::config::{Config, ExerciseIndex};
+use crate::config::{Config, ExerciseIndex, Session};
 use crate::db::{Database, Record};
 
 pub(crate) struct Exercise<'id> {
@@ -29,7 +29,7 @@ pub(crate) struct App<'a, 'id> {
     pub(crate) input_buffer: String,
     pub(crate) queue: VecDeque<Exercise<'id>>,
     pub(crate) start: Instant,
-    pub(crate) session_counter: u32,
+    pub(crate) session: Session,
 }
 
 impl<'a, 'id> App<'a, 'id> {
@@ -106,15 +106,11 @@ impl<'a, 'id> App<'a, 'id> {
             ])
             .red(),
             Row::new([
-                Cell::from("Session").bold(),
-                Cell::from(format!("{}", self.session_counter)),
-            ]),
-            Row::new([
                 Cell::from("Target").bold(),
-                Cell::from(match self.session_counter % 3 {
-                    0 => "High Reps",
-                    1 => "Balance",
-                    _ => "High Weight",
+                Cell::from(match self.session {
+                    Session::Reps => "High Reps",
+                    Session::Balanced => "Balance",
+                    Session::Heavy => "High Weight",
                 }),
             ]),
         ];
