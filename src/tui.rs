@@ -88,11 +88,10 @@ impl<'a, 'id> App<'a, 'id> {
         let panels = Layout::default()
             .direction(Direction::Horizontal)
             .spacing(2)
-            .constraints([Constraint::Min(20), Constraint::Percentage(80)])
+            .constraints([Constraint::Min(25), Constraint::Percentage(80)])
             .split(frame.area());
 
         // 1. Information Display
-
         let remaining =
             self.config.duration.saturating_sub(self.start.elapsed()).as_secs();
         let rows = [
@@ -108,9 +107,8 @@ impl<'a, 'id> App<'a, 'id> {
             Row::new([
                 Cell::from("Target").bold(),
                 Cell::from(match self.session {
-                    Session::Reps => "High Reps",
-                    Session::Balanced => "Balance",
-                    Session::Heavy => "High Weight",
+                    Session::Heavy => "Heavy (3-6)",
+                    Session::Light => "Light (8-11)",
                 }),
             ]),
         ];
@@ -118,7 +116,7 @@ impl<'a, 'id> App<'a, 'id> {
             .title_alignment(Alignment::Center)
             .borders(Borders::ALL);
         frame.render_widget(
-            Table::new(rows, [Constraint::Length(16), Constraint::Fill(1)])
+            Table::new(rows, [Constraint::Length(15), Constraint::Fill(1)])
                 .block(block.clone().title("Status")),
             panels[0],
         );

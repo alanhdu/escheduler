@@ -12,18 +12,13 @@ use serde::Deserialize;
 #[derive(Clone, Copy)]
 #[repr(usize)]
 pub(crate) enum Session {
-    Reps = 0,
-    Heavy = 1,
-    Balanced = 2,
+    Heavy = 0,
+    Light = 1,
 }
 
 impl Session {
     pub(crate) fn from_rng(rng: &mut impl Rng) -> Self {
-        match rng.random_range(0..3) {
-            0 => Self::Balanced,
-            1 => Self::Reps,
-            _ => Self::Heavy,
-        }
+        if rng.random::<bool>() { Self::Heavy } else { Self::Light }
     }
 }
 
@@ -33,8 +28,7 @@ pub(crate) struct RawConfig<'a> {
     specs: HashMap<&'a str, RawSpec<'a>>,
     url: &'a str,
 }
-type RawSpec<'a> =
-    HashMap<&'a str, Option<(Option<u8>, Option<u8>, Option<u8>)>>;
+type RawSpec<'a> = HashMap<&'a str, Option<(Option<u8>, Option<u8>)>>;
 
 type Brand<'id> = PhantomData<fn(&'id ()) -> &'id ()>;
 
@@ -95,9 +89,8 @@ impl<'id> Config<'id> {
         for (group, spec) in &raw.specs {
             for (name, var) in spec {
                 weights.push(match (session, var) {
-                    (Session::Reps, Some((Some(w), _, _))) => *w,
-                    (Session::Balanced, Some((_, Some(w), _))) => *w,
-                    (Session::Heavy, Some((_, _, Some(w)))) => *w,
+                    (Session::Light, Some((Some(w), _))) => *w,
+                    (Session::Heavy, Some((_, Some(w)))) => *w,
                     (_, None) => 0,
                     _ => continue,
                 });
