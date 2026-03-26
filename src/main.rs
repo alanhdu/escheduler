@@ -19,7 +19,7 @@ use eyre::{Context, eyre};
 use rand::Rng;
 
 use crate::buffer::{Lifetime, StringInterner};
-use crate::config::{Config, RawConfig, Session};
+use crate::config::{Config, RawConfig, Session, SessionKind};
 use crate::db::Database;
 use crate::tui::{App, Exercise};
 
@@ -40,7 +40,6 @@ fn main() -> eyre::Result<()> {
     color_eyre::install()?;
 
     let cli = Cli::parse();
-    let mut rng = rand::rng();
     let db = Database::open(&cli.db).wrap_err_with(|| {
         format!("Could not open database file `{}`", cli.db.display())
     })?;
@@ -57,55 +56,58 @@ fn main() -> eyre::Result<()> {
     let value: RawConfig = serde_json::from_str(&buf).wrap_err_with(|| {
         format!("Could not parse file `{}`", path.display())
     })?;
-    let session = Session::from_rng(&mut rng);
+
+    let mut session = Session::from_session_number(session_counter);
+    let kind =
+        session.balanced_select([SessionKind::Heavy, SessionKind::Light, SessionKind::Light]);
 
     Lifetime::with_lifetime(|lifetime| {
         let mut interner = StringInterner::with_lifetime(lifetime);
 
-        let (lower1, lower2) = random_select(
-            &mut rng,
-            interner.insert("hamstring"),
-            interner.insert("squat"),
-        );
+        let mut lower = [interner.insert("hinge"), interner.insert("squat")];
+        session.balanced_shuffle(&mut lower);
+        let [lower1, lower2] = lower;
+        let lower3 = session.balanced_select([
+            interner.insert("lateral"),
+            interner.insert("power"),
+        ]);
 
-        let pull = if session_counter % 2 == 0 {
-            "vertical pull"
-        } else {
-            "horizontal pull"
-        };
-        let push = if session_counter % 3 == 0 {
-            "upward push"
-        } else if session_counter % 3 == 1 {
-            "downward push"
-        } else {
-            "horizontal push"
-        };
-        let (upper1, upper2) = random_select(
-            &mut rng,
-            interner.insert(push),
-            interner.insert(pull),
-        );
+        let (upper1, upper2, upper3) = session.balanced_select([
+            (
+                interner.insert("vertical pull"),
+                interner.insert("vertical push"),
+                interner.insert("shoulder"),
+            ),
+            (
+                interner.insert("dip"),
+                interner.insert("horizontal pull"),
+                interner.insert("horizontal push"),
+            ),
+        ]);
 
-        let core1 = interner.insert("anti-extension");
-        let (core2, _) = random_select(
-            &mut rng,
+        let core1 = session.balanced_select([
+            interner.insert("anti-extension"),
+            interner.insert("anti-extension"),
             interner.insert("anti-lateral"),
+        ]);
+        let accessory = session.balanced_select([
+            interner.insert("knee flexion"),
             interner.insert("anti-rotation"),
-        );
-        let accessory1 = interner.insert("accessory1");
-        let accessory2 = interner.insert("accessory2");
-        let shoulder = interner.insert("exterior shoulder");
+            interner.insert("accessory"),
+        ]);
 
         let config = Config::from_raw(
             interner,
             value,
             Duration::from_mins(cli.minutes.into()),
-            session,
+            kind,
         )?;
 
         let mut get_exercise = |group| {
-            let idx =
-                config.get_exercise(&mut rng, group).ok_or_else(|| {
+            // TODO: should this also be a balanced RNG?
+            let idx = config
+                .get_exercise(&mut session.rng(), group)
+                .ok_or_else(|| {
                     eyre!(format!(
                         "Could not find exercise group '{}'",
                         config.get_group(group)
@@ -118,22 +120,15 @@ fn main() -> eyre::Result<()> {
             })
         };
 
-        let acc1 = get_exercise(accessory1)?;
-        let mut acc2 = get_exercise(accessory2)?;
-        while (config.get_name(acc1.idx) == config.get_name(acc2.idx)) {
-            acc2 = get_exercise(accessory2)?;
-        }
-
         let queue = vec![
             get_exercise(lower1)?,
             get_exercise(upper1)?,
             get_exercise(lower2)?,
             get_exercise(upper2)?,
-            acc1,
             get_exercise(core1)?,
-            acc2,
-            get_exercise(shoulder)?,
-            get_exercise(core2)?,
+            get_exercise(lower3)?,
+            get_exercise(upper3)?,
+            get_exercise(accessory)?,
         ];
 
         let mut app = App {
@@ -142,7 +137,7 @@ fn main() -> eyre::Result<()> {
             input_buffer: String::with_capacity(3),
             queue: VecDeque::from(queue),
             start: Instant::now(),
-            session,
+            session: kind,
         };
 
         let completed = ratatui::run(|terminal| app.run(terminal))?;

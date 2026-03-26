@@ -6,17 +6,57 @@ use std::{
 
 use crate::buffer::{Buffer, StrIndex, StringInterner};
 use eyre::Context;
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::{Rng, RngCore, SeedableRng};
 use serde::Deserialize;
+
+pub(crate) struct Session {
+    session: u32,
+    rng: StdRng,
+}
+
+impl Session {
+    pub(crate) fn rng(&mut self) -> StdRng {
+        StdRng::from_rng(&mut self.rng)
+    }
+
+    pub(crate) fn balanced_select<T: Copy, const N: usize>(
+        &mut self,
+        mut xs: [T; N],
+    ) -> T {
+        self.balanced_shuffle(&mut xs);
+        xs[self.session as usize % xs.len()]
+    }
+
+    /// Shuffle an array of options
+    ///
+    /// This ensures that we always iterate through all options of `xs`
+    /// as the session counter gets incremented (assuming we have the
+    /// *same* sequence of calls to shuffle)
+    pub(crate) fn balanced_shuffle<T>(&mut self, xs: &mut [T]) {
+        let mut seed = [0; 32];
+        self.rng.fill_bytes(&mut seed);
+        seed[0] =
+            u8::wrapping_add(seed[0], (self.session as usize / xs.len()) as u8);
+        let mut rng = StdRng::from_seed(seed);
+        xs.shuffle(&mut rng);
+    }
+
+    pub(crate) fn from_session_number(num: u32) -> Self {
+        let mut rng = StdRng::seed_from_u64(20260326);
+        Self { session: num, rng }
+    }
+}
 
 #[derive(Clone, Copy)]
 #[repr(usize)]
-pub(crate) enum Session {
+pub(crate) enum SessionKind {
     Heavy = 0,
     Light = 1,
 }
 
-impl Session {
+impl SessionKind {
     pub(crate) fn from_rng(rng: &mut impl Rng) -> Self {
         if rng.random::<bool>() { Self::Heavy } else { Self::Light }
     }
@@ -77,7 +117,7 @@ impl<'id> Config<'id> {
         mut interner: StringInterner<'a, 'id>,
         raw: RawConfig<'a>,
         duration: Duration,
-        session: Session,
+        session: SessionKind,
     ) -> eyre::Result<Config<'id>> {
         let url = interner.insert(raw.url);
         let capacity = raw.specs.len();
@@ -89,8 +129,8 @@ impl<'id> Config<'id> {
         for (group, spec) in &raw.specs {
             for (name, var) in spec {
                 weights.push(match (session, var) {
-                    (Session::Light, Some((Some(w), _))) => *w,
-                    (Session::Heavy, Some((_, Some(w)))) => *w,
+                    (SessionKind::Light, Some((Some(w), _))) => *w,
+                    (SessionKind::Heavy, Some((_, Some(w)))) => *w,
                     (_, None) => 0,
                     _ => continue,
                 });
