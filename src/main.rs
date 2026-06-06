@@ -16,7 +16,7 @@ use std::{
 
 use clap::Parser;
 use eyre::{Context, eyre};
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::buffer::{Lifetime, StringInterner};
 use crate::config::{Config, RawConfig, Session, SessionKind};

@@ -8,7 +8,7 @@ use crate::buffer::{Buffer, StrIndex, StringInterner};
 use eyre::Context;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::{Rng, RngCore, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 use serde::Deserialize;
 
 pub(crate) struct Session {
