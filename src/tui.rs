@@ -108,7 +108,7 @@ impl<'a, 'id> App<'a, 'id> {
                 Cell::from("Target").bold(),
                 Cell::from(match self.session {
                     SessionKind::Heavy => "Heavy (3-6)",
-                    SessionKind::Light => "Light (8-11)",
+                    SessionKind::Light => "Light (7-10)",
                 }),
             ]),
         ];

@@ -58,43 +58,46 @@ fn main() -> eyre::Result<()> {
     })?;
 
     let mut session = Session::from_session_number(session_counter);
-    let kind =
-        session.balanced_select([SessionKind::Heavy, SessionKind::Light, SessionKind::Light]);
+    let kind = session.balanced_select([
+        SessionKind::Heavy,
+        SessionKind::Light,
+        SessionKind::Light,
+    ]);
 
     Lifetime::with_lifetime(|lifetime| {
         let mut interner = StringInterner::with_lifetime(lifetime);
 
-        let mut lower = [interner.insert("hinge"), interner.insert("squat")];
+        let mut lower = ["hinge", "squat"];
         session.balanced_shuffle(&mut lower);
-        let [lower1, lower2] = lower;
-        let lower3 = session.balanced_select([
-            interner.insert("lateral"),
-            interner.insert("power"),
-        ]);
 
-        let (upper1, upper2, upper3) = session.balanced_select([
-            (
-                interner.insert("vertical pull"),
-                interner.insert("vertical push"),
-                interner.insert("shoulder"),
-            ),
-            (
-                interner.insert("dip"),
-                interner.insert("horizontal pull"),
-                interner.insert("horizontal push"),
-            ),
-        ]);
 
-        let core1 = session.balanced_select([
-            interner.insert("anti-extension"),
-            interner.insert("anti-extension"),
-            interner.insert("anti-lateral"),
-        ]);
-        let accessory = session.balanced_select([
-            interner.insert("knee flexion"),
-            interner.insert("anti-rotation"),
-            interner.insert("accessory"),
-        ]);
+        let mut pull = ["hpull", "vpull"];
+        session.balanced_shuffle(&mut pull);
+
+        let mut push = ["push up", "dip", "overhead"];
+        session.balanced_shuffle(&mut push);
+
+        let upper = session.balanced_select(
+            [
+                [pull[0], push[0], pull[1]],
+                [push[0], pull[0], push[1]],
+            ]
+        );
+        let core = session.balanced_select(["flexion", "anti-extension", "rotation"]);
+        let aux = session.balanced_select(["knee", "lateral", "lateral"]);
+
+        let q = [
+            "power",  // +2 = 2
+            lower[0], // +3 = 5
+            upper[0], // +3 = 8
+            lower[1], // +3 = 11
+            upper[1], // +3 = 14
+            upper[2], // +2 = 16
+            aux,      // +2 = 18
+            core,     // +2 = 20
+            "carry",  // +2 = 22
+        ]
+        .map(|x| interner.insert(x));
 
         let config = Config::from_raw(
             interner,
@@ -120,22 +123,15 @@ fn main() -> eyre::Result<()> {
             })
         };
 
-        let queue = vec![
-            get_exercise(lower1)?,
-            get_exercise(upper1)?,
-            get_exercise(lower2)?,
-            get_exercise(upper2)?,
-            get_exercise(core1)?,
-            get_exercise(lower3)?,
-            get_exercise(upper3)?,
-            get_exercise(accessory)?,
-        ];
-
+        let queue = q
+            .into_iter()
+            .map(|x| get_exercise(x))
+            .collect::<Result<VecDeque<_>, _>>()?;
         let mut app = App {
             config: &config,
             db,
             input_buffer: String::with_capacity(3),
-            queue: VecDeque::from(queue),
+            queue,
             start: Instant::now(),
             session: kind,
         };
