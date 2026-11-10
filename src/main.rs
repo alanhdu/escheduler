@@ -4,6 +4,7 @@ mod buffer;
 mod config;
 mod db;
 mod queue;
+mod session;
 mod tui;
 
 use std::collections::VecDeque;
@@ -19,8 +20,9 @@ use eyre::{Context, eyre};
 use rand::{Rng, RngExt};
 
 use crate::buffer::{Lifetime, StringInterner};
-use crate::config::{Config, RawConfig, Session, SessionKind};
+use crate::config::{Config, RawConfig, SessionKind};
 use crate::db::Database;
+use crate::session::Session;
 use crate::tui::{App, Exercise};
 
 #[derive(Parser, Debug)]
@@ -58,33 +60,31 @@ fn main() -> eyre::Result<()> {
     })?;
 
     let mut session = Session::from_session_number(session_counter);
-    let kind = session.balanced_select([
-        SessionKind::Heavy,
-        SessionKind::Light,
-        SessionKind::Light,
-    ]);
+    let kind = session.balanced_select(
+        "session-kind",
+        [SessionKind::Heavy, SessionKind::Light, SessionKind::Light],
+    );
 
     Lifetime::with_lifetime(|lifetime| {
         let mut interner = StringInterner::with_lifetime(lifetime);
 
         let mut lower = ["hinge", "squat"];
-        session.balanced_shuffle(&mut lower);
-
+        session.balanced_shuffle("lower", &mut lower);
 
         let mut pull = ["hpull", "vpull"];
-        session.balanced_shuffle(&mut pull);
+        session.balanced_shuffle("pull", &mut pull);
 
         let mut push = ["push up", "dip", "overhead"];
-        session.balanced_shuffle(&mut push);
+        session.balanced_shuffle("push", &mut push);
 
         let upper = session.balanced_select(
-            [
-                [pull[0], push[0], pull[1]],
-                [push[0], pull[0], push[1]],
-            ]
+            "upper",
+            [[pull[0], push[0], pull[1]], [push[0], pull[0], push[1]]],
         );
-        let core = session.balanced_select(["flexion", "anti-extension", "rotation"]);
-        let aux = session.balanced_select(["knee", "lateral", "lateral"]);
+        let core = session
+            .balanced_select("core", ["flexion", "anti-extension", "rotation"]);
+        let aux =
+            session.balanced_select("aux", ["knee", "lateral", "lateral"]);
 
         let q = [
             "power",  // +2 = 2
@@ -106,7 +106,7 @@ fn main() -> eyre::Result<()> {
             kind,
         )?;
 
-        let mut get_exercise = |group| {
+        let get_exercise = |group| {
             // TODO: should this also be a balanced RNG?
             let idx = config
                 .get_exercise(&mut session.rng(), group)
@@ -125,7 +125,7 @@ fn main() -> eyre::Result<()> {
 
         let queue = q
             .into_iter()
-            .map(|x| get_exercise(x))
+            .map(get_exercise)
             .collect::<Result<VecDeque<_>, _>>()?;
         let mut app = App {
             config: &config,
