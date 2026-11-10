@@ -1,9 +1,6 @@
-#![allow(unused)]
-
 mod buffer;
 mod config;
 mod db;
-mod queue;
 mod session;
 mod tui;
 
@@ -17,7 +14,6 @@ use std::{
 
 use clap::Parser;
 use eyre::{Context, eyre};
-use rand::{Rng, RngExt};
 
 use crate::buffer::{Lifetime, StringInterner};
 use crate::config::{Config, RawConfig, SessionKind};
@@ -32,10 +28,6 @@ struct Cli {
 
     #[arg(short, long)]
     minutes: u8,
-}
-
-fn random_select<T>(rng: &mut impl Rng, a: T, b: T) -> (T, T) {
-    if rng.random::<bool>() { (a, b) } else { (b, a) }
 }
 
 fn main() -> eyre::Result<()> {

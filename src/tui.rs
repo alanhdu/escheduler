@@ -1,18 +1,15 @@
 use std::{
-    borrow::Cow,
     collections::VecDeque,
     time::{Duration, Instant},
 };
 
 use eyre::Context;
-use rand::Rng;
 use ratatui::{
     DefaultTerminal, Frame,
     crossterm::event::{self, KeyCode},
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Style, Stylize},
-    text::{Line, Text},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Row, Table},
 };
 
 use crate::config::{Config, ExerciseIndex, SessionKind};
@@ -123,8 +120,6 @@ impl<'a, 'id> App<'a, 'id> {
 
         // 2. Main Area
         let rows = self.queue.iter().enumerate().map(|(i, exercise)| {
-            let weight = self.config.get_weight(exercise.idx);
-            let name = self.config.get_name(exercise.idx);
             let name = Cell::new(self.config.get_name(exercise.idx).replace(
                 "{}",
                 &self.config.get_weight(exercise.idx).to_string(),

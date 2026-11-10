@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::marker::PhantomData;
 
 type Brand<'id> = PhantomData<fn(&'id ()) -> &'id ()>;
@@ -44,7 +43,7 @@ pub(crate) struct StringInterner<'a, 'id> {
 
 impl<'a, 'id> StringInterner<'a, 'id> {
     pub(crate) fn with_lifetime(
-        lifetime: Lifetime<'id>,
+        _lifetime: Lifetime<'id>,
     ) -> StringInterner<'a, 'id> {
         StringInterner {
             map: HashMap::new(),

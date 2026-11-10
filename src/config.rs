@@ -1,11 +1,7 @@
-use std::hash::Hash;
 use std::marker::PhantomData;
-use std::{
-    collections::HashMap, fs::File, io::Read, path::Path, time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 
 use crate::buffer::{Buffer, StrIndex, StringInterner};
-use eyre::Context;
 use rand::{Rng, RngExt};
 use serde::Deserialize;
 
@@ -14,12 +10,6 @@ use serde::Deserialize;
 pub(crate) enum SessionKind {
     Heavy = 0,
     Light = 1,
-}
-
-impl SessionKind {
-    pub(crate) fn from_rng(rng: &mut impl Rng) -> Self {
-        if rng.random::<bool>() { Self::Heavy } else { Self::Light }
-    }
 }
 
 #[derive(Deserialize, Debug)]

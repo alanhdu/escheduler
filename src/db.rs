@@ -67,7 +67,6 @@ CREATE TABLE IF NOT EXISTS records (
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::db::Database;
 
     #[test]
     fn write_and_retrieve() {
