@@ -68,6 +68,9 @@ impl<'a, 'id> App<'a, 'id> {
                             format!("Could not insert {:?}", record)
                         })?;
                         self.input_buffer.clear();
+                        if self.queue.is_empty() {
+                            return Ok(true);
+                        }
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
                         return Ok(self.start.elapsed() >= self.config.duration);
