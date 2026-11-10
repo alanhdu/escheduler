@@ -87,7 +87,7 @@ impl<'id> Config<'id> {
                 let idx = interner.insert(name);
                 names.push(idx);
             }
-            debug_assert!(names.len() <= u16::MAX.into());
+            assert!(names.len() <= u16::MAX.into());
             groups.insert(
                 interner.insert(group),
                 (offset as u16, names.len() as u16),
@@ -95,7 +95,7 @@ impl<'id> Config<'id> {
             offset = names.len();
         }
 
-        debug_assert!(names.len() < u16::MAX.into());
+        assert!(names.len() < u16::MAX.into());
         Ok(Config {
             buffer: interner.into_buffer(),
             url,

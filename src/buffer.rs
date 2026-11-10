@@ -56,7 +56,7 @@ impl<'a, 'id> StringInterner<'a, 'id> {
         let (start, stop) = *self.map.entry(key).or_insert_with(|| {
             let start = self.buf.len() as u16;
             self.buf.push_str(key);
-            debug_assert!(self.buf.len() <= u16::MAX.into());
+            assert!(self.buf.len() <= u16::MAX.into());
             (start, self.buf.len() as u16)
         });
         StrIndex { start, stop, _brand: PhantomData }
